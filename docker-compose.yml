@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: settleup-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: settleup
+      POSTGRES_PASSWORD: settleup123
+      POSTGRES_DB: settleup_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U settleup -d settleup_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: settleup-api
+    restart: always
+    environment:
+      DATABASE_URL: "postgresql://settleup:settleup123@postgres:5432/settleup_db?schema=public"
+      JWT_SECRET: "super-secret-jwt-key-settleup-min-32-chars-long"
+      JWT_REFRESH_SECRET: "super-secret-refresh-key-settleup-min-32-chars-long"
+      PORT: 4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: settleup-web
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:4000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

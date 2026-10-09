@@ -1,0 +1,313 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                String         @id @default(uuid())
+  email             String         @unique
+  passwordHash      String?
+  fullName          String
+  avatarUrl         String?
+  phone             String?        @unique
+  upiId             String?
+  preferredLanguage String         @default("en")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  createdGroups     Group[]        @relation("GroupCreator")
+  groupMemberships  GroupMember[]
+  expensesCreated   Expense[]      @relation("ExpenseCreator")
+  expensePayers     ExpensePayer[]
+  expenseSplits     ExpenseSplit[]
+  comments          Comment[]
+  reactions         Reaction[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  refreshTokens     RefreshToken[]
+  chatMessages      ChatMessage[]
+  itemAssignments   ExpenseItem[]
+  paymentsFrom      Payment[]      @relation("PaymentFromUser")
+  paymentsTo        Payment[]      @relation("PaymentToUser")
+  settlementsCreated Settlement[]  @relation("SettlementCreator")
+
+  @@index([email])
+  @@index([phone])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Group {
+  id                String             @id @default(uuid())
+  name              String
+  description       String?
+  type              String             @default("TRIP") // TRIP, FLATMATES, EVENT, OFFICE, CUSTOM
+  baseCurrency      String             @default("INR")
+  budgetPaise       BigInt?
+  createdById       String
+  createdBy         User               @relation("GroupCreator", fields: [createdById], references: [id])
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  members           GroupMember[]
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+  settlements       Settlement[]
+  payments          Payment[]
+  auditLogs         AuditLog[]
+  chatMessages      ChatMessage[]
+
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model GroupMember {
+  id              String         @id @default(uuid())
+  groupId         String
+  group           Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isGuest         Boolean        @default(false)
+  guestName       String?
+  guestEmail      String?
+  role            String         @default("MEMBER") // ADMIN, MEMBER
+  joinedAt        DateTime       @default(now())
+
+  expensePayers   ExpensePayer[]
+  expenseSplits   ExpenseSplit[]
+  itemAssignments ExpenseItem[]
+  paymentsFrom    Payment[]      @relation("PaymentFromGuest")
+  paymentsTo      Payment[]      @relation("PaymentToGuest")
+
+  @@index([groupId])
+  @@index([userId])
+}
+
+model Expense {
+  id             String         @id @default(uuid())
+  groupId        String
+  group          Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  totalAmount    BigInt         // Amount in paise
+  currency       String         @default("INR")
+  fxRate         Float          @default(1.0)
+  splitMode      String         @default("EQUAL") // EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED, DAYS_STAYED
+  category       String         @default("general")
+  receiptUrl     String?
+  location       String?
+  isRecurring    Boolean        @default(false)
+  visibilityDate DateTime?
+  createdById    String
+  createdBy      User           @relation("ExpenseCreator", fields: [createdById], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  payers         ExpensePayer[]
+  splits         ExpenseSplit[]
+  items          ExpenseItem[]
+  comments       Comment[]
+  reactions      Reaction[]
+
+  @@index([groupId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model ExpensePayer {
+  id            String       @id @default(uuid())
+  expenseId     String
+  expense       Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestMemberId String?
+  guestMember   GroupMember? @relation(fields: [guestMemberId], references: [id], onDelete: Cascade)
+  amountPaise   BigInt
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model ExpenseSplit {
+  id            String       @id @default(uuid())
+  expenseId     String
+  expense       Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestMemberId String?
+  guestMember   GroupMember? @relation(fields: [guestMemberId], references: [id], onDelete: Cascade)
+  amountPaise   BigInt
+  percentage    Float?
+  shares        Float?
+  daysStayed    Int?
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model ExpenseItem {
+  id              String       @id @default(uuid())
+  expenseId       String
+  expense         Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  title           String
+  amountPaise     BigInt
+  assignedUserId  String?
+  assignedUser    User?        @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
+  assignedGuestId String?
+  assignedGuest   GroupMember? @relation(fields: [assignedGuestId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+}
+
+model RecurringExpense {
+  id          String    @id @default(uuid())
+  groupId     String
+  group       Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title       String
+  amountPaise BigInt
+  currency    String    @default("INR")
+  category    String    @default("recurring")
+  splitMode   String    @default("EQUAL")
+  schedule    String    // e.g. "MONTHLY", "WEEKLY"
+  nextRunAt   DateTime
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([groupId])
+}
+
+model Settlement {
+  id          String   @id @default(uuid())
+  groupId     String
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation("SettlementCreator", fields: [createdById], references: [id])
+  status      String   @default("PENDING") // PENDING, PARTIAL, SETTLED
+  createdAt   DateTime @default(now())
+
+  payments    Payment[]
+
+  @@index([groupId])
+  @@index([createdById])
+}
+
+model Payment {
+  id           String    @id @default(uuid())
+  settlementId String?
+  settlement   Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  groupId      String
+  group        Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUserId   String?
+  fromUser     User?     @relation("PaymentFromUser", fields: [fromUserId], references: [id])
+  fromGuestId  String?
+  fromGuest    GroupMember? @relation("PaymentFromGuest", fields: [fromGuestId], references: [id])
+  toUserId     String?
+  toUser       User?     @relation("PaymentToUser", fields: [toUserId], references: [id])
+  toGuestId    String?
+  toGuest      GroupMember? @relation("PaymentToGuest", fields: [toGuestId], references: [id])
+  amountPaise  BigInt
+  upiTxnId     String?
+  status       String    @default("PENDING") // PENDING, CONFIRMED, REJECTED
+  createdAt    DateTime  @default(now())
+  confirmedAt  DateTime?
+
+  @@index([groupId])
+  @@index([settlementId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO")
+  read      Boolean  @default(false)
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  details    String?
+  createdAt  DateTime @default(now())
+
+  @@index([groupId])
+  @@index([createdAt])
+}
+
+model FxRate {
+  id           String   @id @default(uuid())
+  fromCurrency String
+  toCurrency   String
+  rate         Float
+  updatedAt    DateTime @updatedAt
+
+  @@unique([fromCurrency, toCurrency])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String
+  content   String
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([groupId])
+  @@index([createdAt])
+}

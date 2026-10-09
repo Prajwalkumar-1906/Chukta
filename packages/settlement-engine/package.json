@@ -1,0 +1,18 @@
+{
+  "name": "@settleup/settlement-engine",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "benchmark": "tsx src/benchmark.ts"
+  },
+  "devDependencies": {
+    "fast-check": "^3.19.0",
+    "tsx": "^4.15.2",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
