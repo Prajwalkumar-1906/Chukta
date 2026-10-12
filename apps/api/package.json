@@ -1,5 +1,5 @@
 {
-  "name": "@settleup/api",
+  "name": "@chukta/api",
   "version": "1.0.0",
   "private": true,
   "main": "dist/index.js",
@@ -13,8 +13,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@chukta/shared": "workspace:*",
     "@prisma/client": "^5.15.0",
-    "@settleup/settlement-engine": "*",
+    "@settleup/settlement-engine": "workspace:*",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -33,7 +34,9 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.2",
+    "@types/supertest": "^7.2.1",
     "prisma": "^5.15.0",
+    "supertest": "^7.3.1",
     "tsx": "^4.15.2",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"

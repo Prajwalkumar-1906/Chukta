@@ -312,3 +312,210 @@ export async function googleAuth(req: Request, res: Response, next: NextFunction
     next(err);
   }
 }
+
+/**
+ * One-click "Demo as a guest" login for recruiters and quick reviews.
+ * Authenticates as the primary seeded demo user (Rohan Mehta) with full pre-seeded groups and transactions.
+ */
+export async function demoLogin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const demoEmail = 'rohan@example.com';
+    let user = await prisma.user.findUnique({ where: { email: demoEmail } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: demoEmail,
+          fullName: 'Rohan Mehta (Demo)',
+          upiId: 'rohan@okaxis',
+          preferredLanguage: 'en',
+          isGuestDemo: true
+        }
+      });
+    }
+
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await createRefreshToken(user.id);
+    setRefreshTokenCookie(res, refreshToken);
+
+    const { passwordHash: _, ...safeUser } = user;
+
+    res.json({
+      message: 'Logged in as Demo User',
+      user: safeUser,
+      accessToken
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * India DPDP Act aligned: Complete data export in JSON format.
+ */
+export async function exportUserData(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const userId = req.user.userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        createdGroups: true,
+        groupMemberships: { include: { group: true } },
+        expensesCreated: true,
+        expensePayers: true,
+        expenseSplits: true,
+        loansGiven: true,
+        loansTaken: true,
+        initiatedFriendships: true,
+        receivedFriendships: true,
+        auditLogs: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { passwordHash: _, ...exportPayload } = user;
+    res.setHeader('Content-Disposition', `attachment; filename="chukta_user_data_${userId}.json"`);
+    res.json({
+      exportDate: new Date().toISOString(),
+      dpdpActNotice: 'Exported under India Digital Personal Data Protection Act compliance.',
+      data: exportPayload
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * India DPDP Act aligned: Account deletion with financial ledger integrity preservation.
+ * Historical expenses are anonymized to "Deleted User" to maintain balance math for peers.
+ */
+export async function deleteAccount(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const userId = req.user.userId;
+
+    // Anonymize user details
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        fullName: 'Deleted User',
+        email: `deleted_${userId.slice(0, 8)}@chukta.internal`,
+        phone: null,
+        upiId: null,
+        avatarUrl: null,
+        passwordHash: null,
+        anonymized: true
+      }
+    });
+
+    // Revoke all tokens
+    await prisma.refreshToken.updateMany({
+      where: { userId },
+      data: { revoked: true }
+    });
+
+    res.clearCookie('refreshToken');
+    res.json({ message: 'Account successfully deleted and anonymized in accordance with DPDP Act.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * WebAuthn / Passkeys Challenge Stub
+ */
+export async function passkeyChallenge(req: Request, res: Response, next: NextFunction) {
+  try {
+    const challenge = Buffer.from(Math.random().toString()).toString('base64');
+    res.json({ challenge, rpId: 'localhost' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * WebAuthn / Passkeys Verification Stub
+ */
+export async function passkeyVerify(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required for passkey login.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await createRefreshToken(user.id);
+    setRefreshTokenCookie(res, refreshToken);
+
+    const { passwordHash: _, ...safeUser } = user;
+    res.json({
+      message: 'Passkey verification successful',
+      user: safeUser,
+      accessToken
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Set In-App App Lock PIN
+ */
+export async function setPin(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    const { pin } = req.body;
+    if (!pin || pin.length < 4 || pin.length > 6) {
+      return res.status(400).json({ error: 'PIN must be between 4 and 6 digits.' });
+    }
+
+    const hashedPin = await bcrypt.hash(pin, 10);
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { inAppPinHash: hashedPin }
+    });
+
+    res.json({ message: 'App lock PIN set successfully.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Verify In-App App Lock PIN
+ */
+export async function verifyPin(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    const { pin } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+
+    if (!user || !user.inAppPinHash) {
+      return res.status(400).json({ error: 'No PIN is set for this account.' });
+    }
+
+    const valid = await bcrypt.compare(pin, user.inAppPinHash);
+    if (!valid) {
+      return res.status(400).json({ valid: false, error: 'Incorrect PIN.' });
+    }
+
+    res.json({ valid: true, message: 'PIN unlocked successfully.' });
+  } catch (err) {
+    next(err);
+  }
+}

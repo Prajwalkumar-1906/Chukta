@@ -3,46 +3,112 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: settleup-postgres
+    container_name: chukta-postgres
     restart: always
     environment:
-      POSTGRES_USER: settleup
-      POSTGRES_PASSWORD: settleup123
-      POSTGRES_DB: settleup_db
+      POSTGRES_USER: chukta
+      POSTGRES_PASSWORD: chukta123
+      POSTGRES_DB: chukta_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U settleup -d settleup_db"]
+      test: ["CMD-SHELL", "pg_isready -U chukta -d chukta_db"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: chukta-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: chukta-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-create-buckets:
+    image: minio/mc:latest
+    container_name: chukta-minio-setup
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do
+        echo 'Waiting for MinIO to start...'
+        sleep 2;
+      done;
+      /usr/bin/mc mb --ignore-existing local/receipts;
+      /usr/bin/mc mb --ignore-existing local/avatars;
+      /usr/bin/mc anonymous set download local/receipts;
+      /usr/bin/mc anonymous set download local/avatars;
+      echo 'MinIO buckets initialized successfully.';
+      exit 0;
+      "
 
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    container_name: settleup-api
+    container_name: chukta-api
     restart: always
     environment:
-      DATABASE_URL: "postgresql://settleup:settleup123@postgres:5432/settleup_db?schema=public"
-      JWT_SECRET: "super-secret-jwt-key-settleup-min-32-chars-long"
-      JWT_REFRESH_SECRET: "super-secret-refresh-key-settleup-min-32-chars-long"
+      APP_NAME: "Chukta"
+      DATABASE_URL: "postgresql://chukta:chukta123@postgres:5432/chukta_db?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+      S3_BUCKET_RECEIPTS: "receipts"
+      S3_BUCKET_AVATARS: "avatars"
+      JWT_SECRET: "super-secret-jwt-key-chukta-min-32-chars-long"
+      JWT_REFRESH_SECRET: "super-secret-refresh-key-chukta-min-32-chars-long"
+      COOKIE_SECRET: "super-secret-cookie-key-chukta"
       PORT: 4000
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000"
     ports:
       - "4000:4000"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
 
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    container_name: settleup-web
+    container_name: chukta-web
     restart: always
     environment:
+      NEXT_PUBLIC_APP_NAME: "Chukta"
       NEXT_PUBLIC_API_URL: "http://localhost:4000"
     ports:
       - "3000:3000"
@@ -51,3 +117,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
+  minio_data:

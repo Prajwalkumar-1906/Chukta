@@ -8,35 +8,50 @@ generator client {
 }
 
 model User {
-  id                String         @id @default(uuid())
-  email             String         @unique
-  passwordHash      String?
-  fullName          String
-  avatarUrl         String?
-  phone             String?        @unique
-  upiId             String?
-  preferredLanguage String         @default("en")
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                   String             @id @default(uuid())
+  email                String             @unique
+  passwordHash         String?
+  fullName             String
+  avatarUrl            String?
+  phone                String?            @unique
+  upiId                String?
+  preferredLanguage    String             @default("en")
+  dpdpConsent          Boolean            @default(true)
+  anonymized           Boolean            @default(false)
+  isGuestDemo          Boolean            @default(false)
+  reliabilityBadge     String?            // e.g. "QUICK_SETTLER", "TOP_PAYER"
+  passkeyCredentialId  String?
+  passkeyPublicKey     String?
+  inAppPinHash         String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  createdGroups     Group[]        @relation("GroupCreator")
-  groupMemberships  GroupMember[]
-  expensesCreated   Expense[]      @relation("ExpenseCreator")
-  expensePayers     ExpensePayer[]
-  expenseSplits     ExpenseSplit[]
-  comments          Comment[]
-  reactions         Reaction[]
-  notifications     Notification[]
-  auditLogs         AuditLog[]
-  refreshTokens     RefreshToken[]
-  chatMessages      ChatMessage[]
-  itemAssignments   ExpenseItem[]
-  paymentsFrom      Payment[]      @relation("PaymentFromUser")
-  paymentsTo        Payment[]      @relation("PaymentToUser")
-  settlementsCreated Settlement[]  @relation("SettlementCreator")
+  createdGroups        Group[]            @relation("GroupCreator")
+  groupMemberships     GroupMember[]
+  expensesCreated      Expense[]          @relation("ExpenseCreator")
+  expensePayers        ExpensePayer[]
+  expenseSplits        ExpenseSplit[]
+  comments             Comment[]
+  reactions            Reaction[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  refreshTokens        RefreshToken[]
+  chatMessages         ChatMessage[]
+  itemAssignments      ExpenseItem[]
+  paymentsFrom         Payment[]          @relation("PaymentFromUser")
+  paymentsTo           Payment[]          @relation("PaymentToUser")
+  settlementsCreated   Settlement[]       @relation("SettlementCreator")
+  initiatedFriendships Friendship[]       @relation("FriendshipsInitiated")
+  receivedFriendships  Friendship[]       @relation("FriendshipsReceived")
+  loansGiven           Loan[]             @relation("LoanLender")
+  loansTaken           Loan[]             @relation("LoanBorrower")
+  flagsRaised          ExpenseFlag[]      @relation("ExpenseFlagger")
+  pushSubscriptions    PushSubscription[]
+  importJobs           ImportJob[]
 
   @@index([email])
   @@index([phone])
+  @@index([createdAt])
 }
 
 model RefreshToken {
@@ -52,25 +67,45 @@ model RefreshToken {
   @@index([token])
 }
 
-model Group {
-  id                String             @id @default(uuid())
-  name              String
-  description       String?
-  type              String             @default("TRIP") // TRIP, FLATMATES, EVENT, OFFICE, CUSTOM
-  baseCurrency      String             @default("INR")
-  budgetPaise       BigInt?
-  createdById       String
-  createdBy         User               @relation("GroupCreator", fields: [createdById], references: [id])
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+model Friendship {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("FriendshipsInitiated", fields: [userId], references: [id], onDelete: Cascade)
+  friendId  String
+  friend    User     @relation("FriendshipsReceived", fields: [friendId], references: [id], onDelete: Cascade)
+  status    String   @default("ACCEPTED") // PENDING, ACCEPTED, BLOCKED
+  createdAt DateTime @default(now())
 
-  members           GroupMember[]
-  expenses          Expense[]
-  recurringExpenses RecurringExpense[]
-  settlements       Settlement[]
-  payments          Payment[]
-  auditLogs         AuditLog[]
-  chatMessages      ChatMessage[]
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@index([createdAt])
+}
+
+model Group {
+  id                       String             @id @default(uuid())
+  name                     String
+  description              String?
+  type                     String             @default("TRIP") // TRIP, FLATMATES, EVENT, OFFICE, CUSTOM
+  baseCurrency             String             @default("INR")
+  budgetPaise              BigInt?
+  isArchived               Boolean            @default(false)
+  cycleNumber              Int                @default(1)
+  requireApprovalThreshold BigInt?
+  lockedAfterSettlement    Boolean            @default(false)
+  whoCanEditOthers         String             @default("ADMINS_ONLY") // ANYONE, ADMINS_ONLY
+  createdById              String
+  createdBy                User               @relation("GroupCreator", fields: [createdById], references: [id])
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  members                  GroupMember[]
+  expenses                 Expense[]
+  recurringExpenses        RecurringExpense[]
+  settlements              Settlement[]
+  payments                 Payment[]
+  auditLogs                AuditLog[]
+  chatMessages             ChatMessage[]
 
   @@index([createdById])
   @@index([createdAt])
@@ -85,7 +120,7 @@ model GroupMember {
   isGuest         Boolean        @default(false)
   guestName       String?
   guestEmail      String?
-  role            String         @default("MEMBER") // ADMIN, MEMBER
+  role            String         @default("MEMBER") // ADMIN, MEMBER, VIEWER
   joinedAt        DateTime       @default(now())
 
   expensePayers   ExpensePayer[]
@@ -96,36 +131,60 @@ model GroupMember {
 
   @@index([groupId])
   @@index([userId])
+  @@index([joinedAt])
 }
 
 model Expense {
-  id             String         @id @default(uuid())
-  groupId        String
-  group          Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  title          String
-  description    String?
-  totalAmount    BigInt         // Amount in paise
-  currency       String         @default("INR")
-  fxRate         Float          @default(1.0)
-  splitMode      String         @default("EQUAL") // EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED, DAYS_STAYED
-  category       String         @default("general")
-  receiptUrl     String?
-  location       String?
-  isRecurring    Boolean        @default(false)
-  visibilityDate DateTime?
-  createdById    String
-  createdBy      User           @relation("ExpenseCreator", fields: [createdById], references: [id])
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                 String         @id @default(uuid())
+  groupId            String
+  group              Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?
+  totalAmount        BigInt         // Amount in paise
+  currency           String         @default("INR")
+  fxRate             Float          @default(1.0)
+  splitMode          String         @default("EQUAL") // EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED, DAYS_STAYED
+  category           String         @default("general")
+  receiptUrl         String?
+  location           String?
+  isRecurring        Boolean        @default(false)
+  isDisputed         Boolean        @default(false)
+  cgstPaise          BigInt         @default(0)
+  sgstPaise          BigInt         @default(0)
+  serviceChargePaise BigInt         @default(0)
+  duplicateOfId      String?
+  visibilityDate     DateTime?
+  createdById        String
+  createdBy          User           @relation("ExpenseCreator", fields: [createdById], references: [id])
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
-  payers         ExpensePayer[]
-  splits         ExpenseSplit[]
-  items          ExpenseItem[]
-  comments       Comment[]
-  reactions      Reaction[]
+  payers             ExpensePayer[]
+  splits             ExpenseSplit[]
+  items              ExpenseItem[]
+  flags              ExpenseFlag[]
+  comments           Comment[]
+  reactions          Reaction[]
 
   @@index([groupId])
   @@index([createdById])
+  @@index([createdAt])
+}
+
+model ExpenseFlag {
+  id          String    @id @default(uuid())
+  expenseId   String
+  expense     Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  flaggedById String
+  flaggedBy   User      @relation("ExpenseFlagger", fields: [flaggedById], references: [id], onDelete: Cascade)
+  reason      String
+  status      String    @default("OPEN") // OPEN, RESOLVED, REJECTED
+  resolution  String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([expenseId])
+  @@index([flaggedById])
   @@index([createdAt])
 }
 
@@ -189,45 +248,72 @@ model RecurringExpense {
   createdAt   DateTime  @default(now())
 
   @@index([groupId])
+  @@index([nextRunAt])
 }
 
 model Settlement {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   groupId     String
-  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group       Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
   createdById String
-  createdBy   User     @relation("SettlementCreator", fields: [createdById], references: [id])
-  status      String   @default("PENDING") // PENDING, PARTIAL, SETTLED
-  createdAt   DateTime @default(now())
+  createdBy   User      @relation("SettlementCreator", fields: [createdById], references: [id])
+  status      String    @default("PENDING") // PENDING, PARTIAL, SETTLED
+  createdAt   DateTime  @default(now())
 
   payments    Payment[]
 
   @@index([groupId])
   @@index([createdById])
+  @@index([createdAt])
 }
 
 model Payment {
-  id           String    @id @default(uuid())
-  settlementId String?
-  settlement   Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
-  groupId      String
-  group        Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  fromUserId   String?
-  fromUser     User?     @relation("PaymentFromUser", fields: [fromUserId], references: [id])
-  fromGuestId  String?
-  fromGuest    GroupMember? @relation("PaymentFromGuest", fields: [fromGuestId], references: [id])
-  toUserId     String?
-  toUser       User?     @relation("PaymentToUser", fields: [toUserId], references: [id])
-  toGuestId    String?
-  toGuest      GroupMember? @relation("PaymentToGuest", fields: [toGuestId], references: [id])
-  amountPaise  BigInt
-  upiTxnId     String?
-  status       String    @default("PENDING") // PENDING, CONFIRMED, REJECTED
-  createdAt    DateTime  @default(now())
-  confirmedAt  DateTime?
+  id                String       @id @default(uuid())
+  settlementId      String?
+  settlement        Settlement?  @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  groupId           String
+  group             Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUserId        String?
+  fromUser          User?        @relation("PaymentFromUser", fields: [fromUserId], references: [id])
+  fromGuestId       String?
+  fromGuest         GroupMember? @relation("PaymentFromGuest", fields: [fromGuestId], references: [id])
+  toUserId          String?
+  toUser            User?        @relation("PaymentToUser", fields: [toUserId], references: [id])
+  toGuestId         String?
+  toGuest           GroupMember? @relation("PaymentToGuest", fields: [toGuestId], references: [id])
+  amountPaise       BigInt
+  upiTxnId          String?
+  idempotencyKey    String?      @unique
+  method            String       @default("UPI") // UPI, CASH, BANK_TRANSFER, OTHER
+  status            String       @default("PENDING") // PENDING, CONFIRMED, DISPUTED, REJECTED
+  receiverConfirmed Boolean      @default(false)
+  disputed          Boolean      @default(false)
+  disputeReason     String?
+  createdAt         DateTime     @default(now())
+  confirmedAt       DateTime?
 
   @@index([groupId])
   @@index([settlementId])
+  @@index([createdAt])
+}
+
+model Loan {
+  id          String    @id @default(uuid())
+  lenderId    String
+  lender      User      @relation("LoanLender", fields: [lenderId], references: [id], onDelete: Cascade)
+  borrowerId  String
+  borrower    User      @relation("LoanBorrower", fields: [borrowerId], references: [id], onDelete: Cascade)
+  amountPaise BigInt
+  currency    String    @default("INR")
+  notes       String?
+  dueDate     DateTime?
+  settled     Boolean   @default(false)
+  settledAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([lenderId])
+  @@index([borrowerId])
+  @@index([createdAt])
 }
 
 model Comment {
@@ -241,6 +327,7 @@ model Comment {
 
   @@index([expenseId])
   @@index([userId])
+  @@index([createdAt])
 }
 
 model Reaction {
@@ -262,7 +349,7 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   message   String
-  type      String   @default("INFO")
+  type      String   @default("INFO") // INFO, NUDGE, PAYMENT, DISPUTE
   read      Boolean  @default(false)
   metadata  String?
   createdAt DateTime @default(now())
@@ -271,14 +358,26 @@ model Notification {
   @@index([createdAt])
 }
 
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 model AuditLog {
   id         String   @id @default(uuid())
   groupId    String
   group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String
-  entityType String
+  action     String   // CREATE, UPDATE, DELETE, DISPUTE, SETTLE
+  entityType String   // EXPENSE, PAYMENT, MEMBER, GROUP
   entityId   String
   details    String?
   createdAt  DateTime @default(now())
@@ -303,11 +402,28 @@ model ChatMessage {
   group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      String
+  role      String   // user, assistant, system
   content   String
   metadata  String?
   createdAt DateTime @default(now())
 
   @@index([groupId])
+  @@index([createdAt])
+}
+
+model ImportJob {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source       String    @default("SPLITWISE")
+  status       String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  fileName     String?
+  totalRows    Int       @default(0)
+  importedRows Int       @default(0)
+  errorLog     String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  @@index([userId])
   @@index([createdAt])
 }

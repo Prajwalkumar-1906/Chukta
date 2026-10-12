@@ -87,6 +87,7 @@ io.on('connection', (socket) => {
 app.get('/api/v1/health', (req, res) => {
   res.json({
     status: 'ok',
+    appName: env.APP_NAME,
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
@@ -103,11 +104,13 @@ app.use('/api/v1', chatRoutes);
 app.use(errorHandler);
 
 const PORT = env.PORT;
-server.listen(PORT, () => {
-  console.log(`=======================================================`);
-  console.log(`  SettleUp API Server running on port ${PORT}`);
-  console.log(`  Environment: ${env.NODE_ENV}`);
-  console.log(`=======================================================`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    console.log(`=======================================================`);
+    console.log(`  ${env.APP_NAME} API Server running on port ${PORT}`);
+    console.log(`  Environment: ${env.NODE_ENV}`);
+    console.log(`=======================================================`);
+  });
+}
 
 export { app, server };

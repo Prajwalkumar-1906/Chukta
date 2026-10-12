@@ -16,6 +16,12 @@ async function main() {
   await prisma.notification.deleteMany();
   await prisma.reaction.deleteMany();
   await prisma.comment.deleteMany();
+  await prisma.loan.deleteMany();
+  await prisma.friendship.deleteMany();
+  await prisma.expenseFlag.deleteMany();
+  await prisma.fxRate.deleteMany();
+  await prisma.pushSubscription.deleteMany();
+  await prisma.importJob.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.settlement.deleteMany();
   await prisma.recurringExpense.deleteMany();
@@ -319,6 +325,64 @@ async function main() {
   }
 
   console.log(`✅ Created Office group with ${officeExpenses.length} expenses.`);
+
+  // ==========================================
+  // 4. Friend Ledger & Personal Loans / IOUs
+  // ==========================================
+  await prisma.friendship.createMany({
+    data: [
+      { userId: createdUsers['rohan@example.com'].id, friendId: createdUsers['aman@example.com'].id, status: 'ACCEPTED' },
+      { userId: createdUsers['rohan@example.com'].id, friendId: createdUsers['riya@example.com'].id, status: 'ACCEPTED' },
+      { userId: createdUsers['aman@example.com'].id, friendId: createdUsers['priya@example.com'].id, status: 'ACCEPTED' }
+    ]
+  });
+
+  await prisma.loan.create({
+    data: {
+      lenderId: createdUsers['rohan@example.com'].id,
+      borrowerId: createdUsers['aman@example.com'].id,
+      amountPaise: BigInt(250000), // ₹2,500
+      currency: 'INR',
+      notes: 'Weekend music festival pass advance',
+      dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  await prisma.loan.create({
+    data: {
+      lenderId: createdUsers['riya@example.com'].id,
+      borrowerId: createdUsers['rohan@example.com'].id,
+      amountPaise: BigInt(120000), // ₹1,200
+      currency: 'INR',
+      notes: 'Bookstore architectural design books',
+      dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    }
+  });
+
+  // Recurring expense for flatmates
+  await prisma.recurringExpense.create({
+    data: {
+      groupId: flatGroup.id,
+      title: 'Indiranagar Flat Monthly Rent',
+      amountPaise: BigInt(6000000),
+      currency: 'INR',
+      category: 'rent',
+      schedule: 'MONTHLY',
+      nextRunAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+      active: true
+    }
+  });
+
+  // Seed FX rates
+  await prisma.fxRate.createMany({
+    data: [
+      { fromCurrency: 'USD', toCurrency: 'INR', rate: 83.5 },
+      { fromCurrency: 'EUR', toCurrency: 'INR', rate: 91.2 },
+      { fromCurrency: 'GBP', toCurrency: 'INR', rate: 107.8 }
+    ]
+  });
+
+  console.log('✅ Created Friendships, Loans, Recurring Expenses, and FX Rates.');
   console.log('🎉 Database seeding complete!');
 }
 
