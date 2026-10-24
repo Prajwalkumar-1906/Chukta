@@ -94,6 +94,32 @@ npm run benchmark --workspace=packages/settlement-engine
 
 ---
 
+## ☁️ Production Deployment Architecture
+
+Chukta is architected for zero-cost, high-availability student/portfolio production deployments:
+
+| Service | Host | Configuration |
+|---|---|---|
+| **Frontend** | [Vercel](https://vercel.com) | Root: `apps/web`, Framework: Next.js 14, Auto-builds monorepo packages |
+| **Backend API** | [Render](https://render.com) | Node.js Web Service via root [`render.yaml`](./render.yaml), persistent WebSockets / Socket.IO |
+| **Database** | [Neon Cloud](https://neon.tech) | Managed Serverless PostgreSQL (SSL connection pooling, zero cold-starts) |
+| **Containers** | Docker / Compose | Multi-stage [`apps/api/Dockerfile`](./apps/api/Dockerfile) & [`apps/web/Dockerfile`](./apps/web/Dockerfile) |
+
+### 1-Click Render Deployment (Backend API)
+Deploy the API on Render with persistent Socket.IO WebSockets:
+1. Go to [Render Blueprints](https://dashboard.render.com/blueprints) and select **New Blueprint Instance**.
+2. Connect `Prajwalkumar-1906/Chukta`. Render automatically parses [`render.yaml`](./render.yaml).
+3. Set your Neon cloud `DATABASE_URL` in the environment settings and click **Apply**.
+
+### Vercel Deployment (Frontend Web)
+1. Import `Prajwalkumar-1906/Chukta` into [Vercel](https://vercel.com/new).
+2. Set **Root Directory** to `apps/web`.
+3. Add Environment Variable:
+   - `NEXT_PUBLIC_API_URL`: `https://chukta-api.onrender.com` (your deployed Render API URL)
+4. Click **Deploy**.
+
+---
+
 ## 📄 Documentation
 
 Deep-dive technical documentation and system trade-offs are available in [`/docs/interview_talking_points.md`](file:///d:/Desktop/Projects/FULL%20STACK/docs/interview_talking_points.md).
