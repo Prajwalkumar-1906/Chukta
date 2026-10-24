@@ -5,10 +5,11 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "prisma:prepare": "node -e \"const fs = require('fs'); if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('postgres')) { fs.copyFileSync('prisma/schema.postgresql.prisma', 'prisma/schema.prisma'); console.log('Switched Prisma to PostgreSQL schema'); }\"",
+    "build": "pnpm --filter @settleup/settlement-engine run build && pnpm --filter @chukta/shared run build && pnpm run prisma:prepare && prisma generate && tsc",
     "start": "node dist/index.js",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
+    "db:generate": "pnpm run prisma:prepare && prisma generate",
+    "db:push": "pnpm run prisma:prepare && prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "test": "vitest run"
   },

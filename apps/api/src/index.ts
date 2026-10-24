@@ -18,10 +18,29 @@ import adminRoutes from './routes/admin.routes.js';
 const app = express();
 const server = http.createServer(app);
 
+// Allowed Origins Helper
+const allowedOrigins = [
+  env.NEXT_PUBLIC_APP_URL.replace(/\/$/, ''),
+  'http://localhost:3000'
+];
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  const clean = origin.replace(/\/$/, '');
+  if (allowedOrigins.includes(clean)) return true;
+  if (clean.endsWith('.vercel.app')) return true;
+  return false;
+}
+
 // Security & Parsing Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
-  origin: [env.NEXT_PUBLIC_APP_URL, 'http://localhost:3000'],
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
   credentials: true
 }));
 app.use(cookieParser(env.COOKIE_SECRET));
@@ -40,7 +59,12 @@ app.use(limiter);
 // Socket.IO Server
 export const io = new Server(server, {
   cors: {
-    origin: [env.NEXT_PUBLIC_APP_URL, 'http://localhost:3000'],
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true
   }
 });

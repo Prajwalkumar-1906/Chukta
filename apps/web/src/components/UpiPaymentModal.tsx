@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { X, CheckCircle2, QrCode, ExternalLink, ArrowRight, ShieldCheck, Copy, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { API_BASE } from '@/lib/api';
 
 interface UpiPaymentModalProps {
   isOpen: boolean;
@@ -43,7 +44,7 @@ export default function UpiPaymentModal({
   const handleConfirmPayment = async () => {
     setIsProcessing(true);
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/payments`, {
+      await fetch(`${API_BASE}/api/v1/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

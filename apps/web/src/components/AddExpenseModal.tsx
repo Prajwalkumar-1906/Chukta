@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Receipt, Sparkles, User, Camera, Calendar, MapPin, Tag } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import Tesseract from 'tesseract.js';
+import { API_BASE } from '@/lib/api';
 
 interface AddExpenseModalProps {
   isOpen: boolean;
@@ -125,7 +126,7 @@ export default function AddExpenseModal({
     };
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/groups/${groupId}/expenses`, {
+      await fetch(`${API_BASE}/api/v1/groups/${groupId}/expenses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

@@ -1,0 +1,543 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                   String             @id @default(uuid())
+  email                String             @unique
+  passwordHash         String?
+  fullName             String
+  avatarUrl            String?
+  phone                String?            @unique
+  upiId                String?
+  preferredLanguage    String             @default("en")
+  dpdpConsent          Boolean            @default(true)
+  anonymized           Boolean            @default(false)
+  isGuestDemo          Boolean            @default(false)
+  reliabilityBadge     String?            // e.g. "QUICK_SETTLER", "TOP_PAYER"
+  passkeyCredentialId  String?
+  passkeyPublicKey     String?
+  inAppPinHash         String?
+  emailVerified        Boolean            @default(false)
+  emailVerifiedAt      DateTime?
+  twoFactorEnabled     Boolean            @default(false)
+  twoFactorSecret      String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  createdGroups        Group[]            @relation("GroupCreator")
+  groupMemberships     GroupMember[]
+  expensesCreated      Expense[]          @relation("ExpenseCreator")
+  expensePayers        ExpensePayer[]
+  expenseSplits        ExpenseSplit[]
+  comments             Comment[]
+  reactions            Reaction[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  refreshTokens        RefreshToken[]
+  chatMessages         ChatMessage[]
+  itemAssignments      ExpenseItem[]
+  paymentsFrom         Payment[]          @relation("PaymentFromUser")
+  paymentsTo           Payment[]          @relation("PaymentToUser")
+  settlementsCreated   Settlement[]       @relation("SettlementCreator")
+  initiatedFriendships Friendship[]       @relation("FriendshipsInitiated")
+  receivedFriendships  Friendship[]       @relation("FriendshipsReceived")
+  loansGiven           Loan[]             @relation("LoanLender")
+  loansTaken           Loan[]             @relation("LoanBorrower")
+  flagsRaised          ExpenseFlag[]      @relation("ExpenseFlagger")
+  pushSubscriptions    PushSubscription[]
+  importJobs           ImportJob[]
+  authTokens           AuthToken[]
+  recoveryCodes        TwoFactorRecoveryCode[]
+  notificationPref     NotificationPreference?
+  reconciliationsAdmin ReconciliationReport[]   @relation("AdminReconciledBy")
+  ledgerEntries        LedgerEntry[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Friendship {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("FriendshipsInitiated", fields: [userId], references: [id], onDelete: Cascade)
+  friendId  String
+  friend    User     @relation("FriendshipsReceived", fields: [friendId], references: [id], onDelete: Cascade)
+  status    String   @default("ACCEPTED") // PENDING, ACCEPTED, BLOCKED
+  createdAt DateTime @default(now())
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@index([createdAt])
+}
+
+model Group {
+  id                       String             @id @default(uuid())
+  name                     String
+  description              String?
+  type                     String             @default("TRIP") // TRIP, FLATMATES, EVENT, OFFICE, CUSTOM
+  baseCurrency             String             @default("INR")
+  budgetPaise              BigInt?
+  isArchived               Boolean            @default(false)
+  cycleNumber              Int                @default(1)
+  requireApprovalThreshold BigInt?
+  lockedAfterSettlement    Boolean            @default(false)
+  whoCanEditOthers         String             @default("ADMINS_ONLY") // ANYONE, ADMINS_ONLY
+  createdById              String
+  createdBy                User               @relation("GroupCreator", fields: [createdById], references: [id])
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  members                  GroupMember[]
+  expenses                 Expense[]
+  recurringExpenses        RecurringExpense[]
+  settlements              Settlement[]
+  payments                 Payment[]
+  auditLogs                AuditLog[]
+  chatMessages             ChatMessage[]
+  ledgerTransactions       LedgerTransaction[]
+  reconciliationReports    ReconciliationReport[]
+
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model GroupMember {
+  id              String         @id @default(uuid())
+  groupId         String
+  group           Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isGuest         Boolean        @default(false)
+  guestName       String?
+  guestEmail      String?
+  role            String         @default("MEMBER") // ADMIN, MEMBER, VIEWER
+  joinedAt        DateTime       @default(now())
+
+  expensePayers   ExpensePayer[]
+  expenseSplits   ExpenseSplit[]
+  itemAssignments ExpenseItem[]
+  paymentsFrom    Payment[]      @relation("PaymentFromGuest")
+  paymentsTo      Payment[]      @relation("PaymentToGuest")
+  ledgerEntries   LedgerEntry[]
+
+  @@index([groupId])
+  @@index([userId])
+  @@index([joinedAt])
+}
+
+model Expense {
+  id                 String         @id @default(uuid())
+  groupId            String
+  group              Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title              String
+  description        String?
+  totalAmount        BigInt         // Amount in paise
+  currency           String         @default("INR")
+  fxRate             Float          @default(1.0)
+  splitMode          String         @default("EQUAL") // EQUAL, EXACT, PERCENTAGE, SHARES, ITEMIZED, DAYS_STAYED
+  category           String         @default("general")
+  receiptUrl         String?
+  location           String?
+  isRecurring        Boolean        @default(false)
+  isDisputed         Boolean        @default(false)
+  cgstPaise          BigInt         @default(0)
+  sgstPaise          BigInt         @default(0)
+  serviceChargePaise BigInt         @default(0)
+  duplicateOfId      String?
+  visibilityDate     DateTime?
+  createdById        String
+  createdBy          User           @relation("ExpenseCreator", fields: [createdById], references: [id])
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  payers             ExpensePayer[]
+  splits             ExpenseSplit[]
+  items              ExpenseItem[]
+  flags              ExpenseFlag[]
+  comments           Comment[]
+  reactions          Reaction[]
+
+  @@index([groupId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model ExpenseFlag {
+  id          String    @id @default(uuid())
+  expenseId   String
+  expense     Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  flaggedById String
+  flaggedBy   User      @relation("ExpenseFlagger", fields: [flaggedById], references: [id], onDelete: Cascade)
+  reason      String
+  status      String    @default("OPEN") // OPEN, RESOLVED, REJECTED
+  resolution  String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([expenseId])
+  @@index([flaggedById])
+  @@index([createdAt])
+}
+
+model ExpensePayer {
+  id            String       @id @default(uuid())
+  expenseId     String
+  expense       Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestMemberId String?
+  guestMember   GroupMember? @relation(fields: [guestMemberId], references: [id], onDelete: Cascade)
+  amountPaise   BigInt
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model ExpenseSplit {
+  id            String       @id @default(uuid())
+  expenseId     String
+  expense       Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestMemberId String?
+  guestMember   GroupMember? @relation(fields: [guestMemberId], references: [id], onDelete: Cascade)
+  amountPaise   BigInt
+  percentage    Float?
+  shares        Float?
+  daysStayed    Int?
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model ExpenseItem {
+  id              String       @id @default(uuid())
+  expenseId       String
+  expense         Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  title           String
+  amountPaise     BigInt
+  assignedUserId  String?
+  assignedUser    User?        @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
+  assignedGuestId String?
+  assignedGuest   GroupMember? @relation(fields: [assignedGuestId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+}
+
+model RecurringExpense {
+  id          String    @id @default(uuid())
+  groupId     String
+  group       Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title       String
+  amountPaise BigInt
+  currency    String    @default("INR")
+  category    String    @default("recurring")
+  splitMode   String    @default("EQUAL")
+  schedule    String    // e.g. "MONTHLY", "WEEKLY"
+  nextRunAt   DateTime
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([groupId])
+  @@index([nextRunAt])
+}
+
+model Settlement {
+  id          String    @id @default(uuid())
+  groupId     String
+  group       Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User      @relation("SettlementCreator", fields: [createdById], references: [id])
+  status      String    @default("PENDING") // PENDING, PARTIAL, SETTLED
+  createdAt   DateTime  @default(now())
+
+  payments    Payment[]
+
+  @@index([groupId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model Payment {
+  id                String       @id @default(uuid())
+  settlementId      String?
+  settlement        Settlement?  @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  groupId           String
+  group             Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fromUserId        String?
+  fromUser          User?        @relation("PaymentFromUser", fields: [fromUserId], references: [id])
+  fromGuestId       String?
+  fromGuest         GroupMember? @relation("PaymentFromGuest", fields: [fromGuestId], references: [id])
+  toUserId          String?
+  toUser            User?        @relation("PaymentToUser", fields: [toUserId], references: [id])
+  toGuestId         String?
+  toGuest           GroupMember? @relation("PaymentToGuest", fields: [toGuestId], references: [id])
+  amountPaise       BigInt
+  upiTxnId          String?
+  idempotencyKey    String?      @unique
+  method            String       @default("UPI") // UPI, CASH, BANK_TRANSFER, OTHER
+  status            String       @default("PENDING") // PENDING, CONFIRMED, DISPUTED, REJECTED
+  receiverConfirmed Boolean      @default(false)
+  disputed          Boolean      @default(false)
+  disputeReason     String?
+  createdAt         DateTime     @default(now())
+  confirmedAt       DateTime?
+
+  @@index([groupId])
+  @@index([settlementId])
+  @@index([createdAt])
+}
+
+model Loan {
+  id          String    @id @default(uuid())
+  lenderId    String
+  lender      User      @relation("LoanLender", fields: [lenderId], references: [id], onDelete: Cascade)
+  borrowerId  String
+  borrower    User      @relation("LoanBorrower", fields: [borrowerId], references: [id], onDelete: Cascade)
+  amountPaise BigInt
+  currency    String    @default("INR")
+  notes       String?
+  dueDate     DateTime?
+  settled     Boolean   @default(false)
+  settledAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([lenderId])
+  @@index([borrowerId])
+  @@index([createdAt])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, NUDGE, PAYMENT, DISPUTE
+  read      Boolean  @default(false)
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   // CREATE, UPDATE, DELETE, DISPUTE, SETTLE
+  entityType String   // EXPENSE, PAYMENT, MEMBER, GROUP
+  entityId   String
+  details    String?
+  createdAt  DateTime @default(now())
+
+  @@index([groupId])
+  @@index([createdAt])
+}
+
+model FxRate {
+  id           String   @id @default(uuid())
+  fromCurrency String
+  toCurrency   String
+  rate         Float
+  updatedAt    DateTime @updatedAt
+
+  @@unique([fromCurrency, toCurrency])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   // user, assistant, system
+  content   String
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([groupId])
+  @@index([createdAt])
+}
+
+model ImportJob {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source       String    @default("SPLITWISE")
+  status       String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  fileName     String?
+  totalRows    Int       @default(0)
+  importedRows Int       @default(0)
+  errorLog     String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model AuthToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  type      String    // EMAIL_VERIFICATION, PASSWORD_RESET, REAUTH
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([type])
+}
+
+model TwoFactorRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model NotificationPreference {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inApp              Boolean  @default(true)
+  email              Boolean  @default(true)
+  push               Boolean  @default(false)
+  whatsapp           Boolean  @default(false)
+  expenseAdded       Boolean  @default(true)
+  expenseUpdated     Boolean  @default(true)
+  paymentRecorded    Boolean  @default(true)
+  settlementReminder Boolean  @default(true)
+  weeklyDigest       Boolean  @default(true)
+  quietHoursEnabled  Boolean  @default(false)
+  quietHoursStart    String?  @default("22:00")
+  quietHoursEnd      String?  @default("08:00")
+  timezone           String   @default("Asia/Kolkata")
+  updatedAt          DateTime @updatedAt
+}
+
+model LedgerTransaction {
+  id          String        @id @default(uuid())
+  groupId     String
+  group       Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  type        String        // EXPENSE, PAYMENT, WRITEOFF, FX_ADJUSTMENT
+  referenceId String?
+  description String?
+  currency    String        @default("INR")
+  createdAt   DateTime      @default(now())
+
+  entries     LedgerEntry[]
+
+  @@index([groupId])
+  @@index([referenceId])
+  @@index([createdAt])
+}
+
+model LedgerEntry {
+  id            String            @id @default(uuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestMemberId String?
+  guestMember   GroupMember?      @relation(fields: [guestMemberId], references: [id], onDelete: Cascade)
+  direction     String            // DEBIT, CREDIT
+  amountPaise   BigInt
+  createdAt     DateTime          @default(now())
+
+  @@index([transactionId])
+  @@index([userId])
+  @@index([guestMemberId])
+}
+
+model ReconciliationReport {
+  id                    String    @id @default(uuid())
+  groupId               String
+  group                 Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status                String    // BALANCED, DISCREPANCY_DETECTED
+  triggeredBy           String    @default("SYSTEM_NIGHTLY") // SYSTEM_NIGHTLY, ADMIN_MANUAL
+  adminUserId           String?
+  adminUser             User?     @relation("AdminReconciledBy", fields: [adminUserId], references: [id], onDelete: SetNull)
+  sumOfBalancesPaise    BigInt    @default(0)
+  totalDebitsPaise      BigInt    @default(0)
+  totalCreditsPaise     BigInt    @default(0)
+  ledgerMatchesBalances Boolean   @default(true)
+  discrepancyCount      Int       @default(0)
+  discrepancyDetails    String?
+  checkedAt             DateTime  @default(now())
+
+  @@index([groupId])
+  @@index([checkedAt])
+}
+

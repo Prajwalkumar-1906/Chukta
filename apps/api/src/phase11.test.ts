@@ -4,7 +4,7 @@ import { app } from './index.js';
 import { prisma } from './db/prisma.js';
 import { LedgerService } from './services/ledger.service.js';
 import { ReconciliationService } from './services/reconciliation.service.js';
-import { processReconciliationJob } from './jobs/queue.ts';
+import { processReconciliationJob } from './jobs/queue.js';
 
 describe('Phase 11: Money Correctness & Reliability', () => {
   const ts = Date.now();
@@ -340,7 +340,7 @@ describe('Phase 11: Money Correctness & Reliability', () => {
       expect((groupJob as any).status).toBe('BALANCED');
       expect((groupJob as any).discrepancies.length).toBe(0);
 
-      const allJob = await processReconciliationJob({});
+      const allJob: any = await processReconciliationJob({});
       expect(allJob).toBeDefined();
       expect(allJob.totalGroups).toBeGreaterThan(0);
       expect(allJob.balancedCount).toBeGreaterThanOrEqual(1);

@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: chukta-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: pnpm install --frozen-lockfile=false && pnpm --filter @settleup/settlement-engine run build && pnpm --filter @chukta/shared run build && pnpm --filter @chukta/api run db:generate && pnpm --filter @chukta/api run build
+    startCommand: pnpm --filter @chukta/api run start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_NAME
+        value: Chukta
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false

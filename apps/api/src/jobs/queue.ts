@@ -163,7 +163,7 @@ if (isRedisAvailable && redisConnection) {
     reconciliationQueue.add(
       'nightly-reconcile',
       {},
-      { repeat: { pattern: '0 2 * * *' } }
+      { repeat: { pattern: '0 2 * * *' } } as any
     ).catch(() => {});
   }
 }

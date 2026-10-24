@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar';
 import ChatbotWidget from '@/components/ChatbotWidget';
 import { useAuth } from '@/context/AuthContext';
 import { t } from '@/lib/i18n';
+import { API_BASE } from '@/lib/api';
 import { Plus, Users, ArrowUpRight, ArrowDownLeft, CheckCircle2, Zap, Calendar, Wallet } from 'lucide-react';
 
 interface Group {
@@ -64,7 +65,7 @@ export default function DashboardPage() {
 
   // Fetch groups from API
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/groups`)
+    fetch(`${API_BASE}/api/v1/groups`)
       .then(res => res.json())
       .then(data => {
         if (data.groups && data.groups.length > 0) {

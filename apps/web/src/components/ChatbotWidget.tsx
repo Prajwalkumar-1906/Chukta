@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bot, X, Send, Mic, Sparkles, User as UserIcon, MessageSquare } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { t } from '@/lib/i18n';
+import { API_BASE } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -61,7 +62,7 @@ export default function ChatbotWidget({ groupId }: { groupId?: string }) {
 
     try {
       const targetGroupId = groupId || 'goa_trip_demo';
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/chat`, {
+      const res = await fetch(`${API_BASE}/api/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ groupId: targetGroupId, message: query, language })
