@@ -23,6 +23,10 @@ model User {
   passkeyCredentialId  String?
   passkeyPublicKey     String?
   inAppPinHash         String?
+  emailVerified        Boolean            @default(false)
+  emailVerifiedAt      DateTime?
+  twoFactorEnabled     Boolean            @default(false)
+  twoFactorSecret      String?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 
@@ -48,6 +52,11 @@ model User {
   flagsRaised          ExpenseFlag[]      @relation("ExpenseFlagger")
   pushSubscriptions    PushSubscription[]
   importJobs           ImportJob[]
+  authTokens           AuthToken[]
+  recoveryCodes        TwoFactorRecoveryCode[]
+  notificationPref     NotificationPreference?
+  reconciliationsAdmin ReconciliationReport[]   @relation("AdminReconciledBy")
+  ledgerEntries        LedgerEntry[]
 
   @@index([email])
   @@index([phone])
@@ -106,6 +115,8 @@ model Group {
   payments                 Payment[]
   auditLogs                AuditLog[]
   chatMessages             ChatMessage[]
+  ledgerTransactions       LedgerTransaction[]
+  reconciliationReports    ReconciliationReport[]
 
   @@index([createdById])
   @@index([createdAt])
@@ -128,6 +139,7 @@ model GroupMember {
   itemAssignments ExpenseItem[]
   paymentsFrom    Payment[]      @relation("PaymentFromGuest")
   paymentsTo      Payment[]      @relation("PaymentToGuest")
+  ledgerEntries   LedgerEntry[]
 
   @@index([groupId])
   @@index([userId])
@@ -427,3 +439,105 @@ model ImportJob {
   @@index([userId])
   @@index([createdAt])
 }
+
+model AuthToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  type      String    // EMAIL_VERIFICATION, PASSWORD_RESET, REAUTH
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([type])
+}
+
+model TwoFactorRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model NotificationPreference {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inApp              Boolean  @default(true)
+  email              Boolean  @default(true)
+  push               Boolean  @default(false)
+  whatsapp           Boolean  @default(false)
+  expenseAdded       Boolean  @default(true)
+  expenseUpdated     Boolean  @default(true)
+  paymentRecorded    Boolean  @default(true)
+  settlementReminder Boolean  @default(true)
+  weeklyDigest       Boolean  @default(true)
+  quietHoursEnabled  Boolean  @default(false)
+  quietHoursStart    String?  @default("22:00")
+  quietHoursEnd      String?  @default("08:00")
+  timezone           String   @default("Asia/Kolkata")
+  updatedAt          DateTime @updatedAt
+}
+
+model LedgerTransaction {
+  id          String        @id @default(uuid())
+  groupId     String
+  group       Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  type        String        // EXPENSE, PAYMENT, WRITEOFF, FX_ADJUSTMENT
+  referenceId String?
+  description String?
+  currency    String        @default("INR")
+  createdAt   DateTime      @default(now())
+
+  entries     LedgerEntry[]
+
+  @@index([groupId])
+  @@index([referenceId])
+  @@index([createdAt])
+}
+
+model LedgerEntry {
+  id            String            @id @default(uuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestMemberId String?
+  guestMember   GroupMember?      @relation(fields: [guestMemberId], references: [id], onDelete: Cascade)
+  direction     String            // DEBIT, CREDIT
+  amountPaise   BigInt
+  createdAt     DateTime          @default(now())
+
+  @@index([transactionId])
+  @@index([userId])
+  @@index([guestMemberId])
+}
+
+model ReconciliationReport {
+  id                    String    @id @default(uuid())
+  groupId               String
+  group                 Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status                String    // BALANCED, DISCREPANCY_DETECTED
+  triggeredBy           String    @default("SYSTEM_NIGHTLY") // SYSTEM_NIGHTLY, ADMIN_MANUAL
+  adminUserId           String?
+  adminUser             User?     @relation("AdminReconciledBy", fields: [adminUserId], references: [id], onDelete: SetNull)
+  sumOfBalancesPaise    BigInt    @default(0)
+  totalDebitsPaise      BigInt    @default(0)
+  totalCreditsPaise     BigInt    @default(0)
+  ledgerMatchesBalances Boolean   @default(true)
+  discrepancyCount      Int       @default(0)
+  discrepancyDetails    String?
+  checkedAt             DateTime  @default(now())
+
+  @@index([groupId])
+  @@index([checkedAt])
+}
+

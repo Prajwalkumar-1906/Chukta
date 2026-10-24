@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { io } from '../index.js';
+import { LedgerService } from '../services/ledger.service.js';
 
 const payerSchema = z.object({
   userId: z.string().optional(),
@@ -125,6 +126,24 @@ export async function createExpense(req: AuthRequest, res: Response, next: NextF
         }
       }
 
+      // Double-Entry Ledger: Balanced posting inside the same DB transaction
+      await LedgerService.postExpenseToLedger(tx, exp.id, {
+        groupId,
+        title: data.title,
+        currency: data.currency,
+        totalAmountPaise: totalPaise,
+        payers: data.payers.map((p) => ({
+          userId: p.userId,
+          guestMemberId: p.guestMemberId,
+          amountPaise: BigInt(Math.round(p.amountRupees * 100))
+        })),
+        splits: data.splits.map((s) => ({
+          userId: s.userId,
+          guestMemberId: s.guestMemberId,
+          amountPaise: BigInt(Math.round(s.amountRupees * 100))
+        }))
+      });
+
       // Audit Log
       await tx.auditLog.create({
         data: {
@@ -224,6 +243,7 @@ export async function deleteExpense(req: AuthRequest, res: Response, next: NextF
     }
 
     await prisma.$transaction(async (tx) => {
+      await LedgerService.revertLedgerTransaction(tx, expenseId);
       await tx.expense.delete({ where: { id: expenseId } });
 
       await tx.auditLog.create({

@@ -20,7 +20,8 @@ interface AuthContextType {
   setLanguage: (lang: string) => void;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
-  login: (email: string, pass: string) => Promise<void>;
+  login: (email: string, pass: string) => Promise<{ requires2FA?: boolean; tempToken?: string }>;
+  verify2FA: (tempToken: string, code?: string, recoveryCode?: string) => Promise<void>;
   registerUser: (data: any) => Promise<void>;
   loginWithOtp: (phone: string, code: string) => Promise<void>;
   loginWithGoogle: (payload: any) => Promise<void>;
@@ -86,15 +87,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string): Promise<{ requires2FA?: boolean; tempToken?: string }> => {
     try {
       const res = await fetchApi('/api/v1/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password: pass })
       });
+      if (res.requires2FA) {
+        return { requires2FA: true, tempToken: res.tempToken };
+      }
       setUser(res.user);
       setAccessToken(res.accessToken);
       localStorage.setItem('settleup_demo_user', JSON.stringify(res.user));
+      return {};
     } catch (e) {
       // Fallback for dev mode
       const mockUser: User = {
@@ -105,7 +110,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       setUser(mockUser);
       localStorage.setItem('settleup_demo_user', JSON.stringify(mockUser));
+      return {};
     }
+  };
+
+  const verify2FA = async (tempToken: string, code?: string, recoveryCode?: string) => {
+    const res = await fetchApi('/api/v1/auth/2fa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ tempToken, code, recoveryCode })
+    });
+    setUser(res.user);
+    setAccessToken(res.accessToken);
+    localStorage.setItem('settleup_demo_user', JSON.stringify(res.user));
   };
 
   const registerUser = async (data: any) => {
@@ -169,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         darkMode,
         setDarkMode: handleSetDarkMode,
         login,
+        verify2FA,
         registerUser,
         loginWithOtp,
         loginWithGoogle,

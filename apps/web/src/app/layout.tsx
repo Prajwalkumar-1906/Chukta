@@ -1,10 +1,12 @@
 import React from 'react';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
+import CookieConsentBanner from '@/components/CookieConsentBanner';
+import { APP_NAME, APP_DESCRIPTION } from '@chukta/shared';
 
 export const metadata = {
-  title: 'SettleUp - Smart Indian Group Expense Splitter',
-  description: 'Simplify group expenses for trips, flatmates, and office groups with dynamic UPI QR codes and optimal debt settlement engine.'
+  title: `${APP_NAME} - Smart Indian Group Expense Splitter`,
+  description: APP_DESCRIPTION
 };
 
 export default function RootLayout({
@@ -17,6 +19,7 @@ export default function RootLayout({
       <body className="h-full flex flex-col antialiased">
         <AuthProvider>
           {children}
+          <CookieConsentBanner />
         </AuthProvider>
       </body>
     </html>

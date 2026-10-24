@@ -71,6 +71,18 @@ services:
       exit 0;
       "
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: chukta-mailpit
+    restart: always
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_MAX_MESSAGES: 5000
+    volumes:
+      - mailpit_data:/data
+
   api:
     build:
       context: .
@@ -91,6 +103,9 @@ services:
       COOKIE_SECRET: "super-secret-cookie-key-chukta"
       PORT: 4000
       NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+      SMTP_HOST: "mailpit"
+      SMTP_PORT: 1025
+      SMTP_FROM: "no-reply@chukta.app"
     ports:
       - "4000:4000"
     depends_on:
@@ -99,6 +114,8 @@ services:
       redis:
         condition: service_healthy
       minio:
+        condition: service_started
+      mailpit:
         condition: service_started
 
   web:
@@ -119,3 +136,5 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  mailpit_data:
+

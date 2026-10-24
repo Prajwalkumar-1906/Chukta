@@ -18,7 +18,13 @@ const envSchema = z.object({
   S3_SECRET_KEY: z.string().optional(),
   S3_BUCKET_RECEIPTS: z.string().default('receipts'),
   S3_BUCKET_AVATARS: z.string().default('avatars'),
-  GEMINI_API_KEY: z.string().optional()
+  GEMINI_API_KEY: z.string().optional(),
+  SMTP_HOST: z.string().default('localhost'),
+  SMTP_PORT: z.coerce.number().default(1025),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default('no-reply@chukta.app')
 });
 
 export const env = envSchema.parse(process.env);
+

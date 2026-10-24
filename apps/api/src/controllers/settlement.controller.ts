@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { io } from '../index.js';
+import { LedgerService } from '../services/ledger.service.js';
 
 const recordPaymentSchema = z.object({
   groupId: z.string(),
@@ -65,21 +66,47 @@ export async function recordPayment(req: AuthRequest, res: Response, next: NextF
       }
     }
 
-    const payment = await prisma.payment.create({
-      data: {
+    const payment = await prisma.$transaction(async (tx) => {
+      const p = await tx.payment.create({
+        data: {
+          groupId: data.groupId,
+          fromUserId: userId,
+          toUserId: data.toUserId,
+          toGuestId: data.toGuestId,
+          amountPaise,
+          upiTxnId: data.upiTxnId || data.idempotencyKey,
+          status: 'CONFIRMED', // Auto confirm in dev mock flow
+          confirmedAt: new Date()
+        },
+        include: {
+          fromUser: { select: { id: true, fullName: true } },
+          toUser: { select: { id: true, fullName: true, upiId: true } }
+        }
+      });
+
+      // Double-Entry Ledger: Balanced posting inside the same DB transaction
+      await LedgerService.postPaymentToLedger(tx, p.id, {
         groupId: data.groupId,
+        amountPaise,
         fromUserId: userId,
         toUserId: data.toUserId,
         toGuestId: data.toGuestId,
-        amountPaise,
-        upiTxnId: data.upiTxnId || data.idempotencyKey,
-        status: 'CONFIRMED', // Auto confirm in dev mock flow
-        confirmedAt: new Date()
-      },
-      include: {
-        fromUser: { select: { id: true, fullName: true } },
-        toUser: { select: { id: true, fullName: true, upiId: true } }
-      }
+        description: data.upiTxnId ? `Payment via UPI (${data.upiTxnId})` : 'Settlement payment'
+      });
+
+      // Audit Log
+      await tx.auditLog.create({
+        data: {
+          groupId: data.groupId,
+          userId,
+          action: 'RECORD_PAYMENT',
+          entityType: 'PAYMENT',
+          entityId: p.id,
+          details: JSON.stringify({ amount: data.amountRupees, toUserId: data.toUserId, toGuestId: data.toGuestId })
+        }
+      });
+
+      return p;
     });
 
     // Realtime Broadcast
@@ -114,12 +141,33 @@ export async function confirmPayment(req: AuthRequest, res: Response, next: Next
       return res.status(403).json({ error: 'Only the recipient can confirm this payment.' });
     }
 
-    const updated = await prisma.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: 'CONFIRMED',
-        confirmedAt: new Date()
+    const updated = await prisma.$transaction(async (tx) => {
+      const p = await tx.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: 'CONFIRMED',
+          confirmedAt: new Date()
+        }
+      });
+
+      // Check if ledger transaction exists; if not, post it!
+      const existingLedger = await tx.ledgerTransaction.findFirst({
+        where: { referenceId: paymentId }
+      });
+
+      if (!existingLedger) {
+        await LedgerService.postPaymentToLedger(tx, paymentId, {
+          groupId: p.groupId,
+          amountPaise: p.amountPaise,
+          fromUserId: p.fromUserId,
+          fromGuestId: p.fromGuestId,
+          toUserId: p.toUserId,
+          toGuestId: p.toGuestId,
+          description: p.upiTxnId ? `Payment via UPI (${p.upiTxnId})` : 'Settlement payment'
+        });
       }
+
+      return p;
     });
 
     io.to(`group:${payment.groupId}`).emit('payment:confirmed', {

@@ -250,7 +250,7 @@ export default function LandingPage() {
             </div>
             <h3 className="font-bold text-base">AI Speech & NLP Entry</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Speak or type "Dinner 1800 paid by Rohan split with Priya and Aman" in Hinglish or regional languages.
+              Speak or type &quot;Dinner 1800 paid by Rohan split with Priya and Aman&quot; in Hinglish or regional languages.
             </p>
           </div>
 

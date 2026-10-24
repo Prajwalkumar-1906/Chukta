@@ -13,6 +13,7 @@ import groupsRoutes from './routes/groups.routes.js';
 import expensesRoutes from './routes/expenses.routes.js';
 import settlementRoutes from './routes/settlement.routes.js';
 import chatRoutes from './routes/chat.routes.js';
+import adminRoutes from './routes/admin.routes.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -99,6 +100,7 @@ app.use('/api/v1/groups', groupsRoutes);
 app.use('/api/v1/expenses', expensesRoutes);
 app.use('/api/v1', settlementRoutes);
 app.use('/api/v1', chatRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Error Handler
 app.use(errorHandler);

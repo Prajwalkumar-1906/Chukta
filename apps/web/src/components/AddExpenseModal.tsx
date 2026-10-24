@@ -180,7 +180,7 @@ export default function AddExpenseModal({
         {activeTab === 'nl' && (
           <div className="space-y-4 py-2">
             <p className="text-xs text-slate-500">
-              Type or speak naturally in any language (e.g., "Dinner 1800 paid by Rohan split between me, Priya and Aman"):
+              Type or speak naturally in any language (e.g., &quot;Dinner 1800 paid by Rohan split between me, Priya and Aman&quot;):
             </p>
             <textarea
               value={nlText}

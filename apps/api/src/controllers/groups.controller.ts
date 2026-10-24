@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { simplifySettlements, MemberInfo, ExpenseInput } from '@settleup/settlement-engine';
+import { LedgerService } from '../services/ledger.service.js';
+import { ReconciliationService } from '../services/reconciliation.service.js';
+import { io } from '../index.js';
 
 const GroupType = { TRIP: 'TRIP', FLATMATES: 'FLATMATES', EVENT: 'EVENT', OFFICE: 'OFFICE', CUSTOM: 'CUSTOM' };
 const Role = { ADMIN: 'ADMIN', MEMBER: 'MEMBER' };
@@ -326,11 +329,257 @@ export async function getGroupBalances(req: AuthRequest, res: Response, next: Ne
     }));
 
     const plan = simplifySettlements(engineMembers, engineExpenses, existingPayments);
+    const ledgerResult = await LedgerService.calculateLedgerBalances(id);
 
     res.json({
       groupId: id,
       baseCurrency: group.baseCurrency,
-      settlementPlan: plan
+      settlementPlan: plan,
+      ledger: {
+        isBalanced: ledgerResult.isBalanced,
+        totalDebitsPaise: ledgerResult.totalDebits.toString(),
+        totalCreditsPaise: ledgerResult.totalCredits.toString(),
+        balances: ledgerResult.balances.map(b => ({
+          memberKey: b.memberKey,
+          userId: b.userId,
+          guestMemberId: b.guestMemberId,
+          name: b.name,
+          totalDebitsPaise: b.totalDebitsPaise.toString(),
+          totalCreditsPaise: b.totalCreditsPaise.toString(),
+          netBalancePaise: b.netBalancePaise.toString()
+        }))
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+const writeOffSchema = z.object({
+  creditorUserId: z.string().optional(),
+  creditorGuestId: z.string().optional(),
+  debtorUserId: z.string().optional(),
+  debtorGuestId: z.string().optional(),
+  amountRupees: z.number().positive(),
+  description: z.string().optional()
+});
+
+export async function recordWriteOff(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId;
+    const { id: groupId } = req.params;
+    const data = writeOffSchema.parse(req.body);
+
+    const membership = await prisma.groupMember.findFirst({
+      where: { groupId, userId }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const amountPaise = BigInt(Math.round(data.amountRupees * 100));
+
+    const ledgerTx = await prisma.$transaction(async (tx) => {
+      const lTx = await LedgerService.postWriteOffToLedger(tx, {
+        groupId,
+        creditorUserId: data.creditorUserId,
+        creditorGuestId: data.creditorGuestId,
+        debtorUserId: data.debtorUserId,
+        debtorGuestId: data.debtorGuestId,
+        amountPaise,
+        description: data.description || 'Debt write-off'
+      });
+
+      await tx.auditLog.create({
+        data: {
+          groupId,
+          userId,
+          action: 'WRITE_OFF',
+          entityType: 'LEDGER',
+          entityId: lTx.id,
+          details: JSON.stringify({ amountRupees: data.amountRupees, description: data.description })
+        }
+      });
+
+      return lTx;
+    });
+
+    io.to(`group:${groupId}`).emit('writeoff:recorded', {
+      groupId,
+      amountRupees: data.amountRupees,
+      description: data.description
+    });
+
+    res.status(201).json({
+      message: 'Write-off recorded successfully in ledger',
+      transaction: {
+        id: ledgerTx.id,
+        type: ledgerTx.type,
+        amountPaise: amountPaise.toString()
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+const fxAdjustmentSchema = z.object({
+  currency: z.string().min(1),
+  description: z.string().optional(),
+  entries: z.array(z.object({
+    userId: z.string().optional(),
+    guestMemberId: z.string().optional(),
+    direction: z.enum(['DEBIT', 'CREDIT']),
+    amountRupees: z.number().positive()
+  })).min(2)
+});
+
+export async function recordFxAdjustment(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId;
+    const { id: groupId } = req.params;
+    const data = fxAdjustmentSchema.parse(req.body);
+
+    const membership = await prisma.groupMember.findFirst({
+      where: { groupId, userId }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const entries = data.entries.map(e => ({
+      userId: e.userId,
+      guestMemberId: e.guestMemberId,
+      direction: e.direction,
+      amountPaise: BigInt(Math.round(e.amountRupees * 100))
+    }));
+
+    const ledgerTx = await prisma.$transaction(async (tx) => {
+      const lTx = await LedgerService.postFxAdjustmentToLedger(tx, {
+        groupId,
+        currency: data.currency,
+        description: data.description,
+        entries
+      });
+
+      await tx.auditLog.create({
+        data: {
+          groupId,
+          userId,
+          action: 'FX_ADJUSTMENT',
+          entityType: 'LEDGER',
+          entityId: lTx.id,
+          details: JSON.stringify({ currency: data.currency, description: data.description })
+        }
+      });
+
+      return lTx;
+    });
+
+    res.status(201).json({
+      message: 'FX adjustment recorded successfully in ledger',
+      transaction: {
+        id: ledgerTx.id,
+        type: ledgerTx.type,
+        currency: ledgerTx.currency
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getGroupLedger(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId;
+    const { id: groupId } = req.params;
+
+    const membership = await prisma.groupMember.findFirst({
+      where: { groupId, userId }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const transactions = await prisma.ledgerTransaction.findMany({
+      where: { groupId },
+      include: {
+        entries: {
+          include: {
+            user: { select: { id: true, fullName: true } },
+            guestMember: { select: { id: true, guestName: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const ledgerCalc = await LedgerService.calculateLedgerBalances(groupId);
+
+    res.json({
+      groupId,
+      isBalanced: ledgerCalc.isBalanced,
+      totalDebitsPaise: ledgerCalc.totalDebits.toString(),
+      totalCreditsPaise: ledgerCalc.totalCredits.toString(),
+      balances: ledgerCalc.balances.map(b => ({
+        memberKey: b.memberKey,
+        userId: b.userId,
+        guestMemberId: b.guestMemberId,
+        name: b.name,
+        totalDebitsPaise: b.totalDebitsPaise.toString(),
+        totalCreditsPaise: b.totalCreditsPaise.toString(),
+        netBalancePaise: b.netBalancePaise.toString()
+      })),
+      transactions: transactions.map(tx => ({
+        id: tx.id,
+        type: tx.type,
+        description: tx.description,
+        currency: tx.currency,
+        referenceId: tx.referenceId,
+        createdAt: tx.createdAt,
+        entries: tx.entries.map(e => ({
+          id: e.id,
+          userId: e.userId,
+          guestMemberId: e.guestMemberId,
+          memberName: e.guestMember?.guestName || e.user?.fullName || 'Member',
+          direction: e.direction,
+          amountPaise: e.amountPaise.toString()
+        }))
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function reconcileGroupEndpoint(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.userId;
+    const { id: groupId } = req.params;
+
+    const membership = await prisma.groupMember.findFirst({
+      where: { groupId, userId }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
+    const result = await ReconciliationService.reconcileGroup(groupId, {
+      triggeredBy: 'ADMIN_MANUAL',
+      adminUserId: userId
+    });
+
+    res.json({
+      reconciliation: {
+        ...result,
+        sumOfBalancesPaise: result.sumOfBalancesPaise.toString(),
+        totalDebitsPaise: result.totalDebitsPaise.toString(),
+        totalCreditsPaise: result.totalCreditsPaise.toString()
+      }
     });
   } catch (err) {
     next(err);
